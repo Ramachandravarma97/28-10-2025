@@ -2,9 +2,9 @@ pipeline {
   agent any
 
   environment {
-    AWS_REGION     = 'us-east-1'         // your AWS region
-    AWS_ACCOUNT_ID = '460928920964'      // your AWS account ID
-    ECR_REPO       = '28-10-2025'        // your ECR repository name (must be lowercase/valid)
+    AWS_REGION     = 'us-east-1'
+    AWS_ACCOUNT_ID = '460928920964'
+    ECR_REPO       = '28-10-2025'
     ECR_REGISTRY   = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
     DOCKER_BUILDKIT = '1'
   }
@@ -25,20 +25,6 @@ pipeline {
         }
       }
     }
-
-    // (Optional) uncomment to auto-create the repo if it doesn't exist
-    // stage('Ensure ECR Repo') {
-    //   steps {
-    //     withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-jenkins']]) {
-    //       sh '''
-    //         aws --region ${AWS_REGION} ecr describe-repositories \
-    //           --repository-names ${ECR_REPO} >/dev/null 2>&1 || \
-    //         aws --region ${AWS_REGION} ecr create-repository \
-    //           --repository-name ${ECR_REPO} >/dev/null
-    //       '''
-    //     }
-    //   }
-    // }
 
     stage('Build Docker Image') {
       steps {
@@ -70,7 +56,10 @@ pipeline {
         docker image prune -f || true
       '''
     }
+    failure {
+      sh '''
+        echo "Build failed - check Dockerfile for PlatformIO configuration issues"
+      '''
+    }
   }
 }
-
-
