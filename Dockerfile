@@ -22,11 +22,12 @@ RUN python3 -m pip install --upgrade pip && \
     pip3 install --no-cache-dir platformio
 
 # Pre-pull popular platforms/toolchains (GLOBAL installs; no project needed)
-# (Removed `pio pkg update` which expects a platformio.ini/project)
-RUN pio pkg install -g \
-      platformio/tool-scons@">=4.4.0" \
-      platformio/framework-arduinoespressif32@"~3" \
- && pio platform install espressif32
+# Install PlatformIO packages separately (FIXED: pio pkg install only accepts one package at a time)
+RUN pio pkg install -g platformio/tool-scons@">=4.4.0"
+RUN pio pkg install -g platformio/framework-arduinoespressif32@"~3"
+
+# Install the espressif32 platform
+RUN pio platform install espressif32
 
 # ---- Android SDK + Build tools ---------------------------------------------------------------------------------------
 ARG ANDROID_SDK_VERSION=11076708      # commandlinetools-linux *latest-ish*
