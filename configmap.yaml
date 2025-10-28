@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: app-prod
+data:
+  APP_ENV: "production"
+  # add any non-secret settings here
+
