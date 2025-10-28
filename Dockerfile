@@ -1,6 +1,7 @@
 # ---- Base ------------------------------------------------------------------------------------------------------------
 FROM ubuntu:22.04
 
+# Avoid interactive tzdata prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Common tools
@@ -13,24 +14,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # ---- PlatformIO (ESP32 / Arduino) -----------------------------------------------------------------------------------
-# Put PlatformIO global storage in a shared, system-wide location (so non-root can use it)
-ENV PLATFORMIO_CORE_DIR=/opt/platformio
-RUN mkdir -p ${PLATFORMIO_CORE_DIR}
-
 # PlatformIO CLI
 RUN python3 -m pip install --upgrade pip && \
     pip3 install --no-cache-dir platformio
 
-# Pre-pull popular platforms/toolchains (GLOBAL installs; no project needed)
-# Install PlatformIO packages separately (FIXED: pio pkg install only accepts one package at a time)
-RUN pio pkg install -g platformio/tool-scons@">=4.4.0"
-RUN pio pkg install -g platformio/framework-arduinoespressif32@"~3"
-
-# Install the espressif32 platform
-RUN pio platform install espressif32
+# Pre-pull platform & packages WITHOUT requiring your repo to be a PIO project.
+# We create a tiny temp project, run once to download everything globally, then delete it.
+RUN pio platform install espressif32 && \
+    mkdir -p /tmp/pio-preload && \
+    printf "[env:esp32dev]\nplatform = espressif32\nboard = esp32dev\nframework = arduino\nplatform_packages = framework-arduinoespressif32@~3\n" > /tmp/pio-preload/platformio.ini && \
+    pio run -d /tmp/pio-preload || true && \
+    rm -rf /tmp/pio-preload
 
 # ---- Android SDK + Build tools ---------------------------------------------------------------------------------------
-ARG ANDROID_SDK_VERSION=11076708      # commandlinetools-linux *latest-ish*
+ARG ANDROID_SDK_VERSION=11076708      # commandlinetools-linux latest-ish
 ARG ANDROID_API_LEVEL=33
 ARG ANDROID_BUILD_TOOLS=33.0.2
 
@@ -54,7 +51,7 @@ RUN yes | sdkmanager --licenses >/dev/null && \
                "build-tools;${ANDROID_BUILD_TOOLS}" \
                "cmdline-tools;latest"
 
-# Gradle (optional—most Android projects use the wrapper; kept for convenience)
+# Gradle (optional—most Android projects use the wrapper; keep for convenience)
 ARG GRADLE_VERSION=8.7
 RUN wget -q https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip -O /tmp/gradle.zip && \
     unzip -q /tmp/gradle.zip -d /opt && rm /tmp/gradle.zip && \
@@ -62,7 +59,7 @@ RUN wget -q https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-b
 
 # ---- Non-root user for safer CI --------------------------------------------------------------------------------------
 RUN useradd -ms /bin/bash builder && \
-    chown -R builder:builder ${ANDROID_HOME} ${PLATFORMIO_CORE_DIR}
+    chown -R builder:builder /opt/android-sdk
 
 USER builder
 WORKDIR /workspace
@@ -70,16 +67,16 @@ WORKDIR /workspace
 # Helpful env for Java/Gradle builds
 ENV JAVA_TOOL_OPTIONS="-XX:+UseContainerSupport"
 
-# ---- Usage hints (comments) ------------------------------------------------------------------------------------------
+# ---- Usage hints (kept as comments) ----------------------------------------------------------------------------------
 # Build Android (inside Jenkins stage):
 #   cd Android && ./gradlew assembleDebug
 #
 # Build ESP32/Arduino with PlatformIO:
-#   cd ESP32 && pio run
+#   cd ESP32   && pio run
 #   cd ArduinoNano33 && pio run
 #
 # You can mount the repo into /workspace:
 #   docker run --rm -it -v "$PWD":/workspace <image> bash
 
 # Default command
-CMD ["bash"]
+CMD [ "bash" ]
