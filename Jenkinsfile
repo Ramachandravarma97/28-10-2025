@@ -2,11 +2,12 @@ pipeline {
   agent any
 
   environment {
-    AWS_REGION     = 'us-east-1'          // your AWS region
-    AWS_ACCOUNT_ID = '460928920964'       // your AWS account ID
-    ECR_REPO       = '28-10-2025'         // your ECR repository name
+    AWS_REGION     = 'us-east-1'
+    AWS_ACCOUNT_ID = '460928920964'
+    ECR_REPO       = '28-10-2025'
     ECR_REGISTRY   = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-    KUBE_NAMESPACE = 'app-prod'           // namespace to deploy
+    EKS_CLUSTER    = 'floral-monster-1761574697'   // your actual EKS cluster
+    KUBE_NAMESPACE = 'app-prod'
   }
 
   stages {
@@ -49,29 +50,39 @@ pipeline {
       }
     }
 
-    stage('Deploy to Kubernetes') {
+    stage('Configure kubeconfig for EKS') {
       steps {
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-jenkins']]) {
           sh '''
-            echo "Deploying to Kubernetes..."
-
-            # update kubeconfig for your cluster (replace cluster name)
-            aws eks update-kubeconfig --region ${AWS_REGION} --name my-eks-cluster
-
-            # replace image tag in deployment.yaml before applying
-            sed -i "s|image:.*|image: ${ECR_REGISTRY}/${ECR_REPO}:${BUILD_NUMBER}|g" deployment.yaml
-
-            # apply all manifests
-            kubectl apply -f namespace.yaml || true
-            kubectl apply -f configmap.yaml || true
-            kubectl apply -f secret.yaml || true
-            kubectl apply -f service.yaml
-            kubectl apply -f deployment.yaml
-
-            # verify rollout
-            kubectl rollout status deployment/app -n ${KUBE_NAMESPACE} --timeout=120s
+            echo "Setting up kubeconfig for cluster ${EKS_CLUSTER}..."
+            aws eks update-kubeconfig --region ${AWS_REGION} --name ${EKS_CLUSTER}
+            kubectl version --short
           '''
         }
+      }
+    }
+
+    stage('Deploy to Kubernetes') {
+      steps {
+        sh '''
+          echo "Deploying manifests to Kubernetes..."
+
+          # create namespace if missing
+          kubectl get ns ${KUBE_NAMESPACE} >/dev/null 2>&1 || kubectl create namespace ${KUBE_NAMESPACE}
+
+          # apply manifests
+          [ -f namespace.yaml ] && kubectl apply -f namespace.yaml || true
+          [ -f configmap.yaml ] && kubectl -n ${KUBE_NAMESPACE} apply -f configmap.yaml || true
+          [ -f secret.yaml ]    && kubectl -n ${KUBE_NAMESPACE} apply -f secret.yaml || true
+          [ -f service.yaml ]   && kubectl -n ${KUBE_NAMESPACE} apply -f service.yaml || true
+          [ -f deployment.yaml ]&& kubectl -n ${KUBE_NAMESPACE} apply -f deployment.yaml || true
+
+          # update deployment image
+          kubectl -n ${KUBE_NAMESPACE} set image deployment/app app=${ECR_REGISTRY}/${ECR_REPO}:${BUILD_NUMBER}
+
+          # wait for rollout
+          kubectl -n ${KUBE_NAMESPACE} rollout status deployment/app --timeout=120s
+        '''
       }
     }
   }
@@ -79,7 +90,7 @@ pipeline {
   post {
     always {
       sh '''
-        echo "Cleaning up..."
+        echo "Cleaning up Docker resources..."
         docker logout ${ECR_REGISTRY} || true
         docker image prune -f || true
       '''
